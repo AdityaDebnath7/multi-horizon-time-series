@@ -1,0 +1,25 @@
+myvenv/
+
+
+# Python
+__pycache__/
+*.pyc
+
+# ML/training outputs
+lightning_logs/
+.ipynb_checkpoints/
+
+# Environment/secrets
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+CV_TALKING_POINTS.md
+
+analysis copy.ipynb
+
+
+# PyTorch model files
+*.pth
