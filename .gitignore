@@ -23,3 +23,6 @@ analysis copy.ipynb
 
 # PyTorch model files
 *.pth
+CLARIFYING_NOTES_10STEP.md
+
+selfreadme.md

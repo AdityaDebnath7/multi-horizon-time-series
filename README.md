@@ -1,4 +1,4 @@
-# 10-Step Ahead Forecasting Evaluation - Final Report
+# Report
 
 ## Executive Summary
 
@@ -12,7 +12,7 @@ Successfully implemented and evaluated **10-step ahead forecasting** for CO conc
 - **Efficient SARIMA**: Single training with direct `forecast(steps=10)` (166 seconds, no retraining)
 - **Horizon-wise evaluation**: Per-step metrics (Steps 1-10) + aggregated metrics
 
-> Important methodological note: the current notebook includes a few caveats that should be stated clearly. The persistence benchmark at step 1 was effectively tautological due to indexing, the SARIMA baseline was a fixed-origin forecast rather than a true rolling-origin benchmark, and the TFT result is a recursive proxy rather than a native 10-step TFT decoder output. These caveats do not invalidate the broader workflow, but they do affect how the results should be framed in a final report or interview.
+
 
 ---
 
@@ -204,7 +204,7 @@ Shows 5 diverse forecast scenarios:
 
 ---
 
-## Files Generated
+
 
 ### Data Files
 1. **horizon_metrics_10step.csv** - 50 rows (5 models × 10 steps) with RMSE/MAE/MAPE/MASE/R²
@@ -223,44 +223,6 @@ Shows 5 diverse forecast scenarios:
    - Visual comparison of forecasting strategies
 
 ---
-
-## CV Talking Points
-
-### 1-Sentence Summary
-"Implemented a 10-step forecasting extension using 5 models; XGBoost achieved the strongest performance with 0.499 RMSE and 47% improvement over persistence once the step-1 artifact was excluded, while SARIMA and TFT remain approximate baselines under explicit caveats."
-
-### 3-Bullet Version
-- Developed a 10-step forecasting extension for 5 models (Persistence, Linear Regression, XGBoost, SARIMA, TFT) on 1,426 test sequences with horizon-wise evaluation
-- Used a fixed-origin SARIMA approximation to reduce runtime to 166 seconds, but this is not a true rolling-origin benchmark and should be treated as a speed-oriented baseline
-- XGBoost was the strongest performer: RMSE 0.499, MAPE 47.79%, R² 0.608, with consistent performance from horizons 2-10 once the persistence step-1 artifact was excluded
-
-### Technical Interview Answer
-"For the 10-step extension, I implemented two strategies: recursive single-step models (LR, XGBoost, TFT) and a fixed-origin SARIMA approximation using `get_forecast(steps=10)`. The main caution is that persistence step 1 is a same-time artifact, SARIMA is a fixed-origin baseline rather than a fully rolling benchmark, and the TFT result is a recursive proxy rather than native multi-step decoder output. Even with those caveats, XGBoost remained the strongest model in the evaluated setup, with stable performance across steps 2-10."
-
----
-
-## Recommendations
-
-### For Production Deployment
-1. **Use XGBoost** for most accurate CO predictions
-2. **Ensemble with Linear Regression** for interpretability
-3. **Monitor horizon-specific performance** - XGBoost strongest at steps 4-10
-4. **Implement rolling retraining** - update model weekly with new data
-
-### For Model Improvement
-1. **Hyperparameter tuning**: Current XGBoost used standard parameters
-2. **Feature engineering**: Add external regressors (traffic, weather forecast)
-3. **Ensemble methods**: Combine XGBoost + Linear Regression
-4. **TFT optimization**: Retrain specifically for 10-step (not using recursive approximation)
-
-### For CV/Interviews
-1. **Emphasize the engineering trade-off**: Fixed-origin SARIMA as a speed-oriented approximation (166s), with rolling-origin evaluation as the correct approach
-2. **Show rigorous evaluation**: Horizon-wise metrics, not just aggregated
-3. **Demonstrate trade-offs**: XGBoost accuracy vs Linear Regression interpretability
-4. **Include practical insights**: 44% degradation is realistic and expected
-
----
-
 ## Conclusion
 
 XGBoost emerges as the optimal model for 10-step ahead CO forecasting across steps 2–10 (step-1 artifact excluded), with a 47% improvement over the naive baseline in this setup. The key insight: proper evaluation requires horizon-wise analysis, not just aggregated metrics. SARIMA's fixed-origin approximation demonstrates the importance of implementation details, but it should be treated as a speed-oriented approximation rather than a final rolling-origin benchmark.
