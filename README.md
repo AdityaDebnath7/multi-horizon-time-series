@@ -2,10 +2,6 @@
 
 ## Executive Summary
 
-This is an exploratory **10-step forecasting extension** for CO prediction. It is not the official final claim of the project.
-
-The validated project conclusion remains the single-step benchmark: **XGBoost was the strongest model** for the primary forecasting task. The 10-step section below was added as a secondary comparison and should be interpreted with explicit caveats.
-
 Successfully implemented and evaluated **10-step ahead forecasting** for CO concentration prediction using:
 - **5 Models**: Persistence, Linear Regression, XGBoost, SARIMA, Temporal Fusion Transformer (TFT)
 - **1,426 forecast sequences** × 10 steps = 14,260 total predictions
