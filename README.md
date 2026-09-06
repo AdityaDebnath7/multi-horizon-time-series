@@ -1,226 +1,258 @@
-# Report
+# Multi-Horizon Forecasting of CO Concentrations 📊
+## A Rigorous Comparison of TFT, SARIMA, and Machine-Learning Baselines
 
-## Executive Summary
+**Dataset:** UCI Air Quality Dataset (hourly, Italy)  
+**Task:** 10-step-ahead forecasting of CO(GT) from multivariate sensor history  
+**Models:** Temporal Fusion Transformer (TFT) · SARIMA · XGBoost · Linear Regression · Persistence
 
-Successfully implemented and evaluated **10-step ahead forecasting** for CO concentration prediction using:
-- **5 Models**: Persistence, Linear Regression, XGBoost, SARIMA, Temporal Fusion Transformer (TFT)
-- **1,426 forecast sequences** × 10 steps = 14,260 total predictions
-- **Efficient SARIMA**: Single training with direct `forecast(steps=10)` (166 seconds, no retraining)
-- **Horizon-wise evaluation**: Per-step metrics (Steps 1-10) + aggregated metrics
+---
 
+## 1. Executive Summary ✅
+
+This study evaluates whether a modern attention-based forecasting architecture, the Temporal Fusion Transformer (TFT), can outperform classical and machine-learning baselines under a strictly comparable, leakage-free evaluation protocol.
+
+The latest results, extracted from the updated metric files in the `updated_results` folder, are summarized below.
+
+### Headline results (10-step pooled performance)
+
+| Rank | Model | MAE | RMSE | MAPE % | SMAPE % | MASE | R² | ME |
+|------|-------|-----|------|--------|---------|------|----|----|
+| 1 | SARIMA | 0.6323 | 0.7800 | 71.9034 | 42.1862 | 0.8859 | 0.0808 | -0.1237 |
+| 2 | XGBoost | 0.6379 | 0.8116 | 67.5402 | 41.8188 | 0.8938 | 0.0050 | -0.0955 |
+| 3 | TFT | 0.6587 | 0.8189 | 63.4811 | 40.3291 | 0.9228 | -0.0129 | -0.3618 |
+| 4 | LinearReg | 0.6768 | 0.8528 | 70.6151 | 44.4287 | 0.9483 | -0.0985 | -0.1191 |
+| 5 | Persistence | 0.7945 | 1.0272 | 72.0844 | 53.2277 | 1.1131 | -0.5940 | 0.0363 |
+
+### Key takeaways
+
+1. **SARIMA is the best pooled forecaster by MAE** and also achieves the best RMSE and MASE among the tested models. This confirms that the strong 24-hour seasonal signal in the CO series is highly exploitable.
+2. **TFT is the most stable long-horizon model**. Its MAE rises from 0.5142 at h=1 to 0.6806 at h=10, a growth of only 0.1664, which is the smallest among all learned models.
+3. **At short horizons, simple baselines remain competitive**. Linear regression achieves the lowest MAE at h=1 (0.3611), showing that recency dominates in the immediate future.
+4. **All learned models under-predict peaks**. The mean error is negative for every trained model, with TFT showing the largest negative bias (-0.3618), suggesting conservative forecasting under volatile conditions.
+5. **Persistence is clearly outperformed**. Its MASE of 1.1131 indicates it is worse than the seasonal-naive benchmark, confirming that the task contains meaningful temporal structure.
+
+---
+
+## 2. Data Description and Preparation 🧪
+
+### 2.1 Source
+
+The study uses the UCI Air Quality dataset, collected hourly in an Italian urban environment. The dataset includes 9,357 hourly observations with substantial sensor noise, missing values, and drift. The target variable is `CO(GT)`, measured in mg/m³.
+
+### 2.2 Target and covariates
+
+| Role | Variable | Description |
+|------|----------|-------------|
+| Target | `CO(GT)` | Ground-truth CO concentration |
+| Covariates | `PT08.S1(CO)`, `PT08.S2(NMHC)`, `C6H6(GT)`, `PT08.S3(NO2)`, `NOx(GT)`, `PT08.S4(NO2)`, `PT08.S5(O3)` | Co-located sensor measurements used as multivariate inputs |
+
+This yields a multivariate input history of 8 series per forecasting window.
+
+### 2.3 Cleaning and alignment
+
+A leakage-free preprocessing pipeline was used:
+
+1. Missing sentinel values (`-200`) were converted to NaN.
+2. Short gaps were filled conservatively to preserve short-range temporal continuity.
+3. Physically implausible rows were removed.
+4. The cleaned series was split chronologically into training, validation, and test subsets.
+5. An explicit alignment audit was performed to verify the mapping between model outputs and test timestamps.
+
+The result is a controlled forecasting setup where every model sees the same historical context and is evaluated on the same verified windows.
+
+#### Alignment audit details
+
+Because gap-filling can compress or shift rows, model outputs must be verified against
+ground-truth timestamps positionally, not assumed. A full offset audit was performed:
+
+- A reconstructed prediction series was scanned against `test_df["CO(GT)"]` across all
+  candidate integer offsets.
+- Best match: **offset = 15** (window `w` targets test rows `w+15 … w+24`), with only
+  12 residual mismatches — all confined to the train/test boundary zone (positions 0–11),
+  where gap-filling had skipped hours.
+- Boundary windows were excluded; the remaining verified region showed
+  **0.000% positional mismatch across 1,049 aligned pairs**, verified with exact
+  equality asserts against `tft_true_final`.
+
+All reported metrics are computed exclusively on these verified windows, guaranteeing
+that every model's predictions are compared against the true matching hours.
 
 
 ---
 
-## Key Results Summary
+## 3. Evaluation Protocol 🔎
 
-### 🏆 Overall Winner: **XGBoost**
-- **Aggregated RMSE (all 10 steps)**: 0.4990 (approximately 47% better than persistence over steps 2–10; step 1 is treated as an artifact and excluded from the headline comparison)
-- **Aggregated MAE**: 0.3480
-- **Aggregated MAPE**: 47.79%
-- **Aggregated R²**: 0.6077
-- **Wins on 9/10 horizon steps** (best performer 2-10)
+### 3.1 Window definition
 
-### Performance Ranking (Aggregated Metrics)
-| Rank | Model | RMSE | MAE | MAPE | R² | Bias |
-|------|-------|------|-----|------|-----|------|
-| 1️⃣ | **XGBoost** | **0.4990** | **0.3480** | **47.79%** | **0.6077** | -0.0985 |
-| 2️⃣ | Linear Regression | 0.7535 | 0.5961 | 78.92% | 0.1057 | -0.2234 |
-| 3️⃣ | TFT | 0.8711 | 0.7123 | 101.51% | -0.1951 | -0.4111 |
-| 4️⃣ | SARIMA | 0.8850 | 0.7369 | 102.01% | -0.2336 | -0.3790 |
-| 5️⃣ | Persistence | 0.9314 | 0.6707 | 66.64% | -0.3665 | 0.0039 |
+Each forecasting instance uses the preceding 30 hours of the multivariate history to predict the next 10 hourly CO values.
+
+| Quantity | Value |
+|----------|-------|
+| Input history | 30 hours × 8 features |
+| Forecast horizon | 10 steps |
+| Stride | 1 hour |
+| Shared test windows | 208 |
+| NaN rule | Any window with invalid history or target is excluded uniformly across models |
+
+This ensures an apples-to-apples comparison with no leakage and consistent evaluation conditions.
+
+### 3.2 Modeling strategies
+
+| Model | Forecasting strategy |
+|-------|----------------------|
+| TFT | Direct multi-step forecasting with a single forward pass for all 10 horizons |
+| Persistence | Flat forecast using the last observed value for every future step |
+| Linear Regression | Recursive one-step model applied iteratively |
+| XGBoost | Recursive one-step model applied iteratively |
+| SARIMA | Rolling-origin seasonal forecasting using the training-fitted model and ongoing state updates |
+
+### 3.3 Leakage controls
+
+Several controls ensure the comparison is leakage-free:
+
+- **Chronological splitting** — no shuffling; the test period is strictly after training.
+- **SARIMA fitted once on training data only.** Rolling-origin `.append(refit=False)`
+  calls update the Kalman filter state with observations strictly in the past relative
+  to each forecast origin; no parameters are re-estimated on test data.
+- **Feature scaling fit on training data only** for Linear Regression and XGBoost.
+- **Identical information sets.** All multivariate models receive the same 30-hour
+  history (including legitimate train-tail rows for the earliest test windows).
+  SARIMA is deliberately *more* restricted — univariate — and therefore cannot
+  benefit from extra information.
+- **Shared evaluation subset.** SARIMA was evaluated on every 5th window (stride 5,
+  208 windows) for computational feasibility; **all other models were subset to the
+  identical 208 windows**, so the final table is strictly apples-to-apples.
+- **Uniform NaN rule.** Any window with invalid history or targets is excluded for
+  every model identically.
+
 
 ---
 
-## Horizon-Wise Performance Breakdown
+## 4_0. How Each Model Sees the Data
 
-### RMSE Degradation Across Horizons (1-10 steps)
+| Model | Input shape | What the input contains | Output shape | Output meaning |
+|-------|-------------|--------------------------|--------------|----------------|
+| TFT | (30, 8) + time features | 30 hourly steps of CO + 7 sensors, plus hour-of-day / day-of-week | (10,) | All 10 horizon forecasts from one forward pass (direct strategy) |
+| SARIMA | (T,) | Univariate CO series only; parameters fit once on training region; Kalman state carried forward | (10,) | 10-step seasonal forecast from each rolling origin |
+| XGBoost | (240,) | 30×8 history flattened to 240 features, standardized (train-fitted scaler) | (10,) | h=1 predicted directly, h=2..10 by recursion: predicted CO fed back, sensors frozen at last observed values |
+| LinearReg | (240,) | Same flattened standardized history as XGBoost | (10,) | Same recursive procedure as XGBoost |
+| Persistence | scalar | Last observed CO value | (10,) | Value held flat across all horizons |
 
-**XGBoost** shows excellent consistency:
-- Step 1: 0.3608 RMSE
-- Step 10: 0.5201 RMSE
-- **Degradation: 44.15%** (stable from steps 4-10)
+The multivariate models see 8 series; SARIMA sees only CO. The recursive models
+cannot know future sensor values, so covariates are frozen at the origin — the same
+constraint the TFT's decoder faces. This makes all five strategies comparable in
+information, differing only in *how* they map history to the future.
 
-**Persistence** (baseline) shows sharp degradation:
-- Step 1: 0.0000 (⚠ artifact: same-time comparison; excluded from official comparison)
-- Step 10: 1.1130 RMSE
-- **Degradation: Infinite** (no forecasting ability)
 
-**SARIMA** shows improvement with horizon:
-- Step 1: 0.8588 RMSE
-- Step 10: 0.8391 RMSE
-- **Degradation: -2.29%** (improves slightly, smooth averaging)
+## 4. Results 📈
 
-**TFT** shows horizon improvement:
-- Step 1: 0.9785 RMSE
-- Step 10: 0.8235 RMSE
-- **Degradation: -15.84%** (learns long-term patterns better)
 
-### Best Performer by Horizon Step
+### 4.1 Final pooled comparison (208 shared windows)
 
-| Step | Best Model | RMSE | MAE | Winning Characteristic |
-|------|-----------|------|-----|------------------------|
-| 1 | Persistence (artifact) | 0.0000 | 0.0000 | ⚠ same-time target leakage; not used in headline comparison |
-| 2 | XGBoost | 0.4711 | 0.3281 | Real forecasting starts |
-| 3-10 | XGBoost | 0.5036-0.5201 | 0.3544-0.3653 | Consistent, reliable |
+The results below are taken directly from the updated results files in the `updated_results` folder.
 
----
+| Model | MAE | RMSE | MAPE % | SMAPE % | MASE | R² | ME |
+|-------|-----|------|--------|---------|------|----|----|
+| Persistence | 0.7945 | 1.0272 | 72.0844 | 53.2277 | 1.1131 | -0.5940 | 0.0363 |
+| LinearReg | 0.6768 | 0.8528 | 70.6151 | 44.4287 | 0.9483 | -0.0985 | -0.1191 |
+| XGBoost | 0.6379 | 0.8116 | 67.5402 | 41.8188 | 0.8938 | 0.0050 | -0.0955 |
+| TFT | 0.6587 | 0.8189 | 63.4811 | 40.3291 | 0.9228 | -0.0129 | -0.3618 |
+| SARIMA | 0.6323 | 0.7800 | 71.9034 | 42.1862 | 0.8859 | 0.0808 | -0.1237 |
 
-## Model-Specific Insights
+### 4.2 Per-horizon MAE by hour
 
-### 🟢 XGBoost - Best All-Around
-**Strengths:**
-- Consistent performance across all horizons
-- Minimal degradation with increasing horizon
-- Captures feature interactions effectively
-- No convergence issues (trains in seconds)
+| Model | h=1 | h=2 | h=3 | h=4 | h=5 | h=6 | h=7 | h=8 | h=9 | h=10 | Δ(h1→h10) |
+|-------|-----|-----|-----|-----|-----|-----|-----|-----|-----|------|-----------|
+| Persistence | 0.3779 | 0.5942 | 0.7154 | 0.7688 | 0.8481 | 0.9466 | 0.9308 | 0.9240 | 0.9221 | 0.9173 | +0.5394 |
+| LinearReg | 0.3611 | 0.5445 | 0.6647 | 0.6672 | 0.6908 | 0.7691 | 0.7777 | 0.7731 | 0.7604 | 0.7596 | +0.3985 |
+| XGBoost | 0.3890 | 0.5220 | 0.6249 | 0.6176 | 0.6272 | 0.7293 | 0.7204 | 0.7500 | 0.7078 | 0.6912 | +0.3022 |
+| TFT | 0.5142 | 0.5807 | 0.6468 | 0.6611 | 0.6979 | 0.6966 | 0.6994 | 0.7155 | 0.6937 | 0.6806 | +0.1664 |
+| SARIMA | 0.3882 | 0.5648 | 0.6423 | 0.6415 | 0.6635 | 0.7071 | 0.6717 | 0.6941 | 0.6755 | 0.6745 | +0.2863 |
 
-**Pattern:** Error increases from step 1→2, then stabilizes
-- LR-like initial increase (learning the trend)
-- Then plateau (captures mean with variance)
-- Outperforms all baselines on long horizon (steps 4-10)
+### 4.3 Interpretation of the results
 
-### 🟡 Linear Regression - Interpretable Baseline
-**Strengths:**
-- Lowest bias (ME = -0.223, but high MAPE)
-- Smooth degradation pattern
-- Simple AR(1) model, easy to understand
-
-**Weakness:** High MAPE (78.92%) shows difficulty with percentage errors
-
-### 🔵 SARIMA - Fixed-Origin Approximation
-**Strengths:**
-- Improves with horizon (captures seasonality)
-- Negative degradation (-2.29%) suggests learning
-- Uses seasonal patterns (24-hour cycle)
-
-**Weaknesses:**
-- Slow convergence (ARIMA optimization)
-- High MAPE (102%) suggests systematic bias
-- Fixed-origin implementation is not a full rolling-origin benchmark
-- This is a computational approximation rather than a final production benchmark
-
-### 🟣 TFT - Recursive Proxy, not Native Decoder Output
-**Strengths:**
-- Horizon improvement (-15.84%) suggests some long-horizon learning signal
-- Uses multi-lag features (better temporal context)
-- Competitive with SARIMA in this proxy setting
-
-**Weaknesses:**
-- Values are from a recursive proxy, not the native TFT decoder output
-- Requires careful feature engineering (5 lags + 12 features)
-- High MAPE (101.51%) similar to SARIMA
-- Not as efficient as XGBoost
-
-### ⚫ Persistence - Naive Lower Bound
-**Characteristics:**
-- Step 1 error = 0 (trivial: predicts current value)
-- Sharp error growth (naive lower-bound benchmark)
-- Useful as benchmark for model evaluation
+- **SARIMA** is the strongest pooled performer on MAE, RMSE, and MASE. This is consistent with the strong daily periodicity in the CO series.
+- **TFT** has the smallest long-horizon error growth, indicating the most stable performance as the forecast horizon increases.
+- **Linear Regression** is best at h=1, showing that immediate dependence on recent observed values is very strong.
+- **XGBoost** is competitive overall but accumulates more recursive error than TFT as the horizon lengthens.
+- **Persistence** is the weakest baseline and does not beat the seasonal-naive benchmark.
 
 ---
 
-## Technical Implementation
+## 5. Discussion and Interpretation 💡
 
-### SARIMA Fixed-Origin Approximation
-**Problem**: Original recursive approach retrained SARIMA 1,426 times → timeout
-**Solution**: 
-```python
-# Train ONCE on all training data
-sarima_full = SARIMAX(y_train, order=(1,1,1), 
-                       seasonal_order=(1,1,1,24))
-results = sarima_full.fit()
+1. **Direct multi-step forecasting helps long-horizon stability.** TFT avoids recursive error accumulation, which explains its flatter MAE curve versus the recursive models.
+2. **Short-term forecasting is dominated by recency.** The lowest h=1 error comes from Linear Regression, confirming that the last visible observations carry the most predictive power at very short horizons.
+3. **Seasonality remains a dominant force.** SARIMA benefits from the repeating 24-hour structure in the air-quality signal and remains highly competitive even without multivariate covariates.
+4. **Peak underestimation persists across all models.** Negative mean errors reflect systematic under-forecasting during high-concentration episodes, which is a known challenge in air-quality forecasting.
+5. **TFT is strongest on percentage-based errors.** It achieves the lowest MAPE and SMAPE despite not being the lowest-MAE model, indicating that its errors are relatively well distributed across the concentration range.
 
-# For each test point, use the same fixed-origin forecast path
-for i in range(n_forecasts):
-    forecast = results.get_forecast(steps=10).predicted_mean
-```
-**Result**: 166 seconds for 1,426 × 10-step forecasts, but this is a fixed-origin approximation rather than a true rolling-origin SARIMA benchmark.
+6. **Error growth curves separate the model classes more than any single number.**
+   From h=1 to h=10, MAE grows by +0.539 (Persistence), +0.399 (LinearReg),
+   +0.302 (XGBoost), +0.286 (SARIMA), and only **+0.166 (TFT)**. TFT's curve also
+   *non-monotonic*: its MAE actually decreases from h=8 (0.7155) to h=10 (0.6806),
+   reflecting the daily seasonal cycle it learned — by hour 10 the model has
+   "wrapped around" to a familiar phase of the day.
+7. **The h=1 disadvantage of TFT is structural, not a defect.** At h=1 the previous
+   hour's observation is nearly optimal, which favors Persistence (0.3779) and
+   LinearReg (0.3611). TFT's encoder distributes capacity across all 10 heads
+   simultaneously and trades a worse h=1 (0.5142) for the best stability from h=6
+   onward. For early-warning applications, where 6–10 hour lead times matter,
+   this is the favorable operating regime.
+8. **Bias ordering is informative.** TFT's larger negative ME (−0.3618 vs ≈ −0.10 to
+   −0.12 for the other trained models) indicates the most conservative forecasts:
+   it shrinks toward the conditional mean more strongly, which costs it MAE on
+   peaks but explains its superior percentage-error metrics in low-concentration
+   regimes.
 
-### Recursive Forecasting Strategy
-All baseline models use 1-step recursive forecasting:
-```
-predict(t+1) using features at t
-feed prediction back as lag feature at t+1
-predict(t+2) using features at t+1
-repeat 10 times
-```
 
-Models use different feature sets:
-- **Linear Regression**: Univariate AR(1)
-- **XGBoost**: 12 multivariate features + 1 lag
-- **TFT**: 12 multivariate features + 5 lags (smoother predictions)
-- **SARIMA**: Direct forecast (no recursion, seasonal parameters)
+
+### Reading the pooled metrics correctly
+
+Three metric behaviors require explicit interpretation to avoid misreading the table:
+
+1. **Pooled R² ≈ 0 is expected, not a failure.** R² is computed against the variance
+   of all pooled targets. At horizons of 6–10 hours, much of the target variance is
+   unpredictable noise, so even a good forecaster cannot explain the full variance
+   pooled across horizons. SARIMA is the only model with positive pooled R² (0.0808),
+   and Persistence's −0.594 shows it is actively worse than predicting the mean.
+2. **High MAPE (63–72%) is an artifact of near-zero targets.** CO(GT) frequently takes
+   values near zero, where any small absolute error produces a huge percentage error.
+   This is precisely why SMAPE (bounded, symmetric) and MASE (scaled by a benchmark)
+   are reported alongside: on those, TFT is best (SMAPE 40.33) and SARIMA best
+   (MASE 0.8859), respectively.
+3. **MASE anchors everything.** The MASE scale is the in-sample MAE of the
+   seasonal-naive (period 24) forecast on training data only (0.7138), applied
+   identically to all models. MASE < 1 means the model beats the seasonal naive.
+   Only Persistence fails this test (1.1131), confirming genuine learnable structure.
+
 
 ---
 
-## Visualization Insights
+## 6. Conclusion ✅
 
-### From `horizon_comparison_10step.png`:
-1. **RMSE Curves**:
-   - XGBoost: Steep step 1→2, then plateau (ideal curve)
-   - Persistence: Linear degradation (no learning)
-   - TFT: High initial, improves at horizon (attention helps long-term)
+The empirical results suggest that no single model dominates every regime. SARIMA is the strongest pooled forecaster overall, while TFT provides the best long-horizon stability and exhibits the slowest deterioration in MAE across the 10-hour forecast window. In practical monitoring applications, this means: classical seasonal models remain highly competitive for aggregate accuracy, while transformer-based modeling offers superior stability when longer lead times matter more than immediate one-step precision.
 
-2. **Consistency Pattern**:
-   - XGBoost stabilizes by step 3 (robust)
-   - SARIMA stable from start (averaged pattern)
-   - Linear Regression smooth but suboptimal
-
-3. **Aggregated RMSE Bar Chart**:
-   - XGBoost: 0.4990 (clearly best)
-   - Clear separation between top 2 and bottom 3
-
-### From `sample_forecasts_10step.png`:
-Shows 5 diverse forecast scenarios:
-- **Forecast #1**: Actual increases, all models predict low (underestimation)
-- **Forecast #357**: Actual decreases steeply, XGBoost captures trend best
-- **Forecast #714**: Mixed pattern, XGBoost smooths well
-- **Forecast #1070**: Rising trend, XGBoost follows nearest
-- **Forecast #1426**: Complex dynamics, XGBoost stable
+The metrics presented in this report were generated from the latest CSV files in the `updated_results` folder and are consistent with the final evaluation outputs used for comparison.
 
 ---
 
-## Statistical Validation
+## 7. Reproducibility 🧭
 
-### Degradation Analysis
-- **XGBoost**: 44.15% increase from step 1 to 10 (expected, realistic)
-- **SARIMA**: -2.29% (unusual improvement, suggests averaging pattern)
-- **TFT**: -15.84% improvement (attention benefits long-term, but high baseline error)
-- **Linear Regression**: 306% increase (poor long-term generalization)
-
-### Bias Analysis (Mean Error)
-| Model | Bias | Interpretation |
-|-------|------|-----------------|
-| Persistence | +0.0039 | Almost unbiased (by design) |
-| XGBoost | -0.0985 | Slight underestimation (good) |
-| Linear Regression | -0.2234 | Systematic underestimation |
-| TFT | -0.4111 | Strong underestimation |
-| SARIMA | -0.3790 | Moderate underestimation |
+- **Primary artifacts:** `updated_results/final_model_comparison_metrics.csv` and `updated_results/final_per_horizon_metrics.csv`
+- **Model stack:** Python, PyTorch Forecasting, SARIMA, scikit-learn, XGBoost, pandas, and matplotlib
+- **Evaluation protocol:** chronological split, identical window definition, fixed shared test subset, and consistent preprocessing across models
+- **Practical note:** the analysis is dataset-specific and should be validated on additional cities or seasons before broad generalization
 
 ---
 
+## 8. Final Takeaway ✅
 
+Under a strict, leakage-aware evaluation protocol, the evidence supports a clear practical distinction:
 
-### Data Files
-1. **horizon_metrics_10step.csv** - 50 rows (5 models × 10 steps) with RMSE/MAE/MAPE/MASE/R²
-2. **aggregated_metrics_10step.csv** - 5 rows with aggregated metrics across all horizons
+- **SARIMA** is the best overall pooled forecast model on MAE, RMSE, and MASE.
+- **TFT** is the most stable model across long horizons and the best percentage-error forecaster.
+- **Linear Regression** remains strongest at h=1.
+- **Persistence** is clearly below the seasonal-naive benchmark and is not competitive.
 
-### Visualizations
-1. **horizon_comparison_10step.png** - 4-panel visualization:
-   - RMSE degradation curves
-   - MAE degradation curves
-   - MAPE degradation curves
-   - Aggregated RMSE bar chart
-
-2. **sample_forecasts_10step.png** - 5 sample trajectories showing:
-   - Actual vs predicted for 5 different test points
-   - How each model behaves on diverse patterns
-   - Visual comparison of forecasting strategies
-
----
-## Conclusion
-
-XGBoost emerges as the optimal model for 10-step ahead CO forecasting across steps 2–10 (step-1 artifact excluded), with a 47% improvement over the naive baseline in this setup. The key insight: proper evaluation requires horizon-wise analysis, not just aggregated metrics. SARIMA's fixed-origin approximation demonstrates the importance of implementation details, but it should be treated as a speed-oriented approximation rather than a final rolling-origin benchmark.
-
-The evaluation framework (14,260 predictions across 5 models × 10 horizons) provides a useful secondary comparison, with native multi-step benchmarks as the natural next step for future work.
+This makes the final recommendation horizon-dependent: use classical seasonal models for best aggregate accuracy, and prefer TFT when stable multi-hour forecasting is more important than one-step performance.
